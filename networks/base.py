@@ -48,6 +48,7 @@ class Athlete(object):
         self.model.compile(optimizer=tf.keras.optimizers.Adam(lr=0.01), loss=tf.losses.mean_squared_error)
         for i in range(epoch):
             print("Epoch {} running:...".format(i))
+            self.replay_memory.reset()
             self.simulate(self.action_threshold)
             num_batches = self.replay_memory.length / self.batch_size
             for j in range(int(num_batches)):
@@ -56,9 +57,9 @@ class Athlete(object):
                 estimated_next_q = self.model.predict(next_states)
                 for index in range(self.batch_size):
                     if not dones[index]:
-                        estimated_q[index] = rewards[index] + self.gamma * estimated_next_q[index]
+                        estimated_q[index][actions[index]] = rewards[index] + self.gamma * np.max(estimated_next_q[index])
                     else:
-                        estimated_q[index] = rewards[index]
+                        estimated_q[index][actions[index]] = rewards[index]
 
                 self.model.fit(states, estimated_q, epochs=1, verbose=0)
 
@@ -81,7 +82,7 @@ class Athlete(object):
             action = np.argmax(action, 1)[0]
             print(action)
             if render:
-                time.sleep(0.1)
+                # time.sleep(0.1)
                 self.environment.render()
             state_after, revard, done, _ = self.environment.step(action)
             if done:
@@ -91,3 +92,26 @@ class Athlete(object):
         self.environment.close()
         print("Steps taken: ", step_count)
         return step_count
+
+    def score_model(self, model=None, model_path="", num_iteration=10):
+        if not model:
+            model: tf.keras.Model = tf.keras.models.load_model(model_path)
+
+        scores = []
+        for i in range(num_iteration):
+            state = self.environment.reset()
+            step_count = 0
+            while True:
+                step_count += 1
+                action = model.predict(state.reshape((1,4)))
+                action = np.argmax(action, 1)[0]
+                state_after, revard, done, _ = self.environment.step(action)
+                if done:
+                    break
+                state = state_after
+
+            scores.append(step_count)
+
+        self.environment.close()
+        avg_score = sum(scores) / num_iteration
+        return avg_score

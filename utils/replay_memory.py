@@ -4,16 +4,16 @@ import numpy as np
 class ReplayMemory(object):
     def __init__(self, state_shape:tuple, capacity=10000):
         self.states = np.zeros([capacity] + list(state_shape), dtype=float)
-        self.actions = np.zeros((capacity,1), dtype=int)
-        self.rewards = np.zeros((capacity, 1), dtype=float)
-        self.done = np.zeros((capacity, 1), dtype=bool)
+        self.actions = np.zeros((capacity,), dtype=int)
+        self.rewards = np.zeros((capacity,), dtype=float)
+        self.done = np.zeros((capacity,), dtype=bool)
         self.next_states = np.zeros([capacity] + list(state_shape), dtype=float)
         self.length = 0
         self.capacity = capacity
 
     def add(self, state, action, reward, done, next_state):
         if self.is_full:
-            raise Exception("replay memory is fulle!")
+            raise Exception("replay memory is full!")
         self.states[self.length] = state
         self.actions[self.length] = action
         self.rewards[self.length] = reward
