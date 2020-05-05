@@ -8,6 +8,7 @@ class ReplayMemory(object):
         self.rewards = np.zeros((capacity,), dtype=float)
         self.done = np.zeros((capacity,), dtype=bool)
         self.next_states = np.zeros([capacity] + list(state_shape), dtype=float)
+        self.estimated_q = None
         self.length = 0
         self.capacity = capacity
 
@@ -20,6 +21,15 @@ class ReplayMemory(object):
         self.done[self.length] = done
         self.next_states[self.length] = next_state
         self.length = self.length + 1
+
+    def compute_estimated_q(self, target_model, gamma):
+        self.estimated_q = target_model.predict(self.states)
+        estimated_next_q = target_model.predict(self.next_states)
+        for index in range(self.capacity):
+            if not self.done[index]:
+                self.estimated_q[index][self.actions[index]] = self.rewards[index] + np.max(estimated_next_q[index])
+            else:
+                self.estimated_q[index][self.actions[index]] = self.rewards[index]
 
     @property
     def is_full(self):
@@ -34,7 +44,8 @@ class ReplayMemory(object):
         rewards = self.rewards[idx]
         dones = self.done[idx]
         next_states = self.next_states[idx]
-        return states, actions, rewards, dones, next_states
+        estimated_q = self.estimated_q[idx]
+        return states, actions, rewards, dones, next_states, estimated_q
 
     def reset(self):
         self.length = 0

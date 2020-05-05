@@ -4,6 +4,7 @@ import gym
 import numpy as np
 import tensorflow as tf
 from utils.replay_memory import ReplayMemory
+from utils.motion_tracer import MotionTracer
 
 
 class Athlete(object):
@@ -14,6 +15,7 @@ class Athlete(object):
         self.action_space = self.environment.action_space.n
         self.replay_memory = ReplayMemory(self.state_shape, capacity=replay_memory_size)
         self.model = self.build_network()
+        self.target_model = self.build_network()
         self.action_threshold= action_threshold
         self.batch_size = batch_size
         self.gamma = gamma
@@ -48,19 +50,13 @@ class Athlete(object):
         self.model.compile(optimizer=tf.keras.optimizers.Adam(lr=0.01), loss=tf.losses.mean_squared_error)
         for i in range(epoch):
             print("Epoch {} running:...".format(i))
+            self.target_model.set_weights(self.model.get_weights())
             self.replay_memory.reset()
             self.simulate(self.action_threshold)
+            self.replay_memory.compute_estimated_q(self.target_model, self.gamma)
             num_batches = self.replay_memory.length / self.batch_size
             for j in range(int(num_batches)):
-                states, actions, rewards, dones, next_states = self.replay_memory.random_batch(self.batch_size)
-                estimated_q = self.model.predict(states)
-                estimated_next_q = self.model.predict(next_states)
-                for index in range(self.batch_size):
-                    if not dones[index]:
-                        estimated_q[index][actions[index]] = rewards[index] + self.gamma * np.max(estimated_next_q[index])
-                    else:
-                        estimated_q[index][actions[index]] = rewards[index]
-
+                states, actions, rewards, dones, next_states, estimated_q = self.replay_memory.random_batch(self.batch_size)
                 self.model.fit(states, estimated_q, epochs=1, verbose=0)
 
             if i % 5 == 0:
@@ -73,25 +69,24 @@ class Athlete(object):
         if not model:
             model: tf.keras.Model = tf.keras.models.load_model(model_path)
         state = self.environment.reset()
-        step_count = 0
+        reward_count = 0
         while True:
-            step_count += 1
-            action = model.predict(state.reshape((1,4)))
+            action = model.predict(state.reshape([1,] + list(self.state_shape)))
             print(state)
             print(action)
             action = np.argmax(action, 1)[0]
             print(action)
             if render:
-                # time.sleep(0.1)
+                time.sleep(0.05)
                 self.environment.render()
             state_after, revard, done, _ = self.environment.step(action)
+            reward_count += revard
             if done:
                 break
             state = state_after
 
-        self.environment.close()
-        print("Steps taken: ", step_count)
-        return step_count
+        print("Steps taken: ", reward_count)
+        return reward_count
 
     def score_model(self, model=None, model_path="", num_iteration=10):
         if not model:
@@ -99,19 +94,67 @@ class Athlete(object):
 
         scores = []
         for i in range(num_iteration):
-            state = self.environment.reset()
-            step_count = 0
-            while True:
-                step_count += 1
-                action = model.predict(state.reshape((1,4)))
-                action = np.argmax(action, 1)[0]
-                state_after, revard, done, _ = self.environment.step(action)
-                if done:
-                    break
-                state = state_after
-
-            scores.append(step_count)
-
-        self.environment.close()
+            score = self.estimate_model(model)
+            scores.append(score)
         avg_score = sum(scores) / num_iteration
         return avg_score
+
+class MotionAthlete(Athlete):
+    def __init__(self, environment_name="Acrobot-v1", replay_memory_size=10000, action_threshold=0.7, batch_size=64, gamma=0.9):
+        super(MotionAthlete, self).__init__(environment_name, replay_memory_size, action_threshold, batch_size, gamma)
+        frame = self.environment.reset()
+        frmae_shape = frame.shape
+        self.motion_tracer = MotionTracer(frame_shape=frmae_shape)
+        self.state_shape =  self.motion_tracer.state_shape
+        self.replay_memory = ReplayMemory(self.state_shape, capacity=replay_memory_size)
+        del self.model
+        del self.target_model
+        self.model = self.build_network()
+        self.target_model = self.build_network()
+
+    def simulate(self, action_threshold: float):
+        print("Simulating...")
+        frame = self.environment.reset()
+        self.motion_tracer.reset()
+        self.motion_tracer.add_frame(frame)
+        while not self.replay_memory.is_full:
+            state = self.motion_tracer.get_state()
+            action = self.choose_action(state, action_threshold)
+            frame_after, reward, done, _ = self.environment.step(action)
+            self.motion_tracer.add_frame(frame_after)
+            state_next = self.motion_tracer.get_state()
+            self.replay_memory.add(state, action, reward, done, state_next)
+            if done:
+                frame = self.environment.reset()
+                self.motion_tracer.reset()
+                self.motion_tracer.add_frame(frame)
+        print("Simulation finished")
+
+        return True
+
+    def estimate_model(self, model=None, model_path="", render=True):
+        if not model:
+            model: tf.keras.Model = tf.keras.models.load_model(model_path)
+        frame = self.environment.reset()
+        self.motion_tracer.reset()
+        self.motion_tracer.add_frame(frame)
+        state = self.motion_tracer.get_state()
+        reward_count = 0
+        while True:
+            action = model.predict(state.reshape([1,] + list(self.state_shape)))
+            print(frame)
+            print(action)
+            action = np.argmax(action, 1)[0]
+            print(action)
+            if render:
+                time.sleep(0.05)
+                self.environment.render()
+            frame_after, revard, done, _ = self.environment.step(action)
+            reward_count += revard
+            if done:
+                break
+            self.motion_tracer.add_frame(frame_after)
+            state = self.motion_tracer.get_state()
+
+        print("Steps taken: ", reward_count)
+        return reward_count
