@@ -1,4 +1,4 @@
-import gym
+from utils.environment_wrapper import EnvironmentWrapper
 import sys, tty, termios
 
 def get_ch():
@@ -12,7 +12,7 @@ def get_ch():
     return ch
 
 def interact_gym_env(environment_name:str):
-    environment = gym.make(environment_name)
+    environment = EnvironmentWrapper(environment_name)
     action_space = environment.action_space.n
     state = environment.reset()
     environment.render()
@@ -23,6 +23,7 @@ def interact_gym_env(environment_name:str):
         _, rev, done, _ = environment.step(action)
         reward += rev
         environment.render()
+        print(rev)
         if done:
             break
             print("Done")

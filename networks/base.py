@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 from utils.replay_memory import ReplayMemory
 from utils.motion_tracer import MotionTracer
+from utils.environment_wrapper import EnvironmentWrapper
 
 
 class Athlete(object):
@@ -102,6 +103,9 @@ class Athlete(object):
 class MotionAthlete(Athlete):
     def __init__(self, environment_name="Acrobot-v1", replay_memory_size=10000, action_threshold=0.7, batch_size=64, gamma=0.9):
         super(MotionAthlete, self).__init__(environment_name, replay_memory_size, action_threshold, batch_size, gamma)
+        self.environment.close()
+        del self.environment
+        self.environment = EnvironmentWrapper(environment_name)
         frame = self.environment.reset()
         frmae_shape = frame.shape
         self.motion_tracer = MotionTracer(frame_shape=frmae_shape)
@@ -140,7 +144,9 @@ class MotionAthlete(Athlete):
         self.motion_tracer.add_frame(frame)
         state = self.motion_tracer.get_state()
         reward_count = 0
+        step_count = 0
         while True:
+            step_count += 1
             action = model.predict(state.reshape([1,] + list(self.state_shape)))
             print(frame)
             print(action)
@@ -156,5 +162,6 @@ class MotionAthlete(Athlete):
             self.motion_tracer.add_frame(frame_after)
             state = self.motion_tracer.get_state()
 
-        print("Steps taken: ", reward_count)
+        print("Total reward: ", reward_count)
+        print("Total step: ", step_count)
         return reward_count
